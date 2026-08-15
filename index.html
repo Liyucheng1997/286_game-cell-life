@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>细胞的一生 · A Cell's Life</title>
+<style>
+  :root {
+    --bg: #0b0f1a; --panel: rgba(12, 16, 28, .82); --line: rgba(255,255,255,.12);
+    --text: #eef2ff; --muted: #9aa5c4; --accent: #6ee7ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC","Segoe UI",sans-serif; }
+  #c { position: fixed; inset: 0; display: block; }
+  button { font-family: inherit; cursor: pointer; }
+  .btn { background: linear-gradient(135deg,#4f8cff,#6ee7ff); color:#061020; border:0; border-radius: 10px;
+    padding: 12px 26px; font-size: 16px; font-weight: 700; letter-spacing: .5px; box-shadow: 0 6px 20px rgba(80,160,255,.35); transition: transform .12s; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+  .hidden { display: none !important; }
+
+  /* ---------- 菜单 ---------- */
+  #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(1200px 700px at 50% 30%, #1a2350 0%, #0b0f1a 60%); z-index: 20; overflow: auto; padding: 40px 20px; }
+  #menu h1 { font-size: 52px; letter-spacing: 6px; font-weight: 800; background: linear-gradient(90deg,#ff7b7b,#ffd36e,#6ee7ff,#a78bfa); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #menu .sub { color: var(--muted); margin: 10px 0 34px; font-size: 16px; letter-spacing: 2px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; max-width: 1080px; width: 100%; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px 20px; cursor: pointer; transition: transform .15s, border-color .15s, box-shadow .15s; position: relative; overflow: hidden; }
+  .card:hover { transform: translateY(-4px); border-color: var(--cc); box-shadow: 0 10px 40px color-mix(in srgb, var(--cc) 35%, transparent); }
+  .card::before { content:""; position:absolute; inset:0; background: radial-gradient(300px 120px at 20% 0%, color-mix(in srgb, var(--cc) 28%, transparent), transparent 70%); pointer-events:none; }
+  .card .icon { font-size: 40px; }
+  .card h2 { font-size: 22px; margin: 8px 0 2px; }
+  .card .en { color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+  .card .tag { display: inline-block; margin: 10px 0; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: color-mix(in srgb, var(--cc) 25%, transparent); color: var(--cc); border: 1px solid color-mix(in srgb, var(--cc) 50%, transparent); }
+  .card p { color: #c9d1ea; font-size: 13px; line-height: 1.65; }
+  .card .meta { margin-top: 12px; display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  .card .done { position: absolute; top: 14px; right: 14px; font-size: 12px; color: #6cf5a1; border: 1px solid rgba(108,245,161,.5); border-radius: 999px; padding: 2px 8px; }
+  #menu .foot { margin-top: 30px; color: var(--muted); font-size: 12px; text-align: center; line-height: 1.8; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  #hud > * { pointer-events: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(8px); }
+  #topleft { position: absolute; left: 18px; top: 18px; padding: 14px 18px; min-width: 300px; max-width: 380px; }
+  #topleft .phase { font-size: 12px; color: var(--accent); letter-spacing: 1px; }
+  #topleft .title { font-size: 20px; font-weight: 700; margin: 3px 0 8px; }
+  #topleft .obj { font-size: 13px; color: #d5dcf5; line-height: 1.5; }
+  .bar { height: 8px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg,#6ee7ff,#a78bfa); border-radius: 999px; transition: width .25s; }
+  #hearts { margin-top: 8px; font-size: 14px; letter-spacing: 2px; }
+  #cargo { margin-top: 6px; font-size: 13px; color: #ffd36e; }
+  #topright { position: absolute; right: 18px; top: 18px; display: flex; gap: 8px; }
+  #topright button { padding: 8px 14px; font-size: 13px; border-radius: 10px; }
+  #tips { position: absolute; right: 18px; bottom: 18px; padding: 10px 14px; font-size: 12px; color: var(--muted); line-height: 1.7; max-width: 260px; }
+  #tips b { color: var(--text); }
+  #toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 10px 22px; font-size: 18px; font-weight: 700; border-radius: 999px; opacity: 0; transition: opacity .2s; }
+
+  /* QTE */
+  #qte { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(640px, 92vw); padding: 18px 22px; text-align: center; }
+  #qte .step { font-size: 12px; color: var(--accent); letter-spacing: 1px; }
+  #qte .label { font-size: 26px; font-weight: 800; margin: 4px 0 8px; }
+  #qte .desc { font-size: 14px; color: #d5dcf5; line-height: 1.6; min-height: 44px; }
+  .key { display: inline-block; margin-top: 12px; padding: 8px 40px; border-radius: 10px; border: 2px solid var(--accent); color: var(--accent); font-weight: 700; letter-spacing: 3px; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(110,231,255,.5);} 50%{ box-shadow: 0 0 0 10px rgba(110,231,255,0);} }
+  .key.busy { animation: none; opacity: .4; }
+  /* timing */
+  #timing { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: min(560px, 92vw); padding: 16px 22px; text-align: center; }
+  #timing .track { position: relative; height: 22px; background: rgba(255,255,255,.08); border-radius: 999px; margin: 12px 0 8px; overflow: hidden; }
+  #timing .zone { position: absolute; top: 0; bottom: 0; background: rgba(108,245,161,.45); border-left: 2px solid #6cf5a1; border-right: 2px solid #6cf5a1; }
+  #timing .cursor { position: absolute; top: -2px; width: 6px; height: 26px; background: #fff; border-radius: 3px; box-shadow: 0 0 10px #fff; }
+  #timing .lbl { font-size: 13px; color: var(--muted); }
+  /* cinematic */
+  #caption { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); width: min(760px, 92vw); padding: 18px 26px; text-align: center; font-size: 18px; line-height: 1.7; }
+  #caption .skip { margin-top: 10px; }
+
+  /* ---------- 弹窗 ---------- */
+  .modal { position: fixed; inset: 0; z-index: 15; display: flex; align-items: center; justify-content: center; background: rgba(4,6,14,.55); backdrop-filter: blur(4px); }
+  .modal .box { width: min(720px, 92vw); max-height: 88vh; overflow: auto; padding: 32px 36px; border-radius: 22px; background: linear-gradient(160deg, rgba(20,26,48,.98), rgba(10,14,26,.98)); border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+  .box .phase { color: var(--accent); font-size: 13px; letter-spacing: 2px; }
+  .box h2 { font-size: 30px; margin: 6px 0 16px; }
+  .box .body { font-size: 15px; line-height: 1.85; color: #d9e0f7; }
+  .box .body b { color: #ffd36e; }
+  .box .objbox { margin: 18px 0; padding: 12px 16px; border-left: 3px solid var(--accent); background: rgba(110,231,255,.07); border-radius: 6px; font-size: 14px; }
+  .box .objbox span { color: var(--accent); font-weight: 700; }
+  .box ul { margin: 8px 0 0 18px; line-height: 1.9; font-size: 14px; color: #d9e0f7; }
+  .box .actions { margin-top: 24px; display: flex; gap: 12px; justify-content: flex-end; }
+  .stamp { display: inline-block; font-size: 13px; padding: 4px 12px; border-radius: 999px; background: rgba(108,245,161,.15); color: #6cf5a1; border: 1px solid rgba(108,245,161,.4); }
+  .timeline { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+  .timeline .row { display: flex; gap: 12px; align-items: center; font-size: 14px; }
+  .timeline .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); flex: none; box-shadow: 0 0 10px var(--accent); }
+  .timeline .row small { color: var(--muted); }
+  #loading { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--muted); font-size: 14px; letter-spacing: 2px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading">正在加载 Three.js …</div>
+
+<!-- 主菜单 -->
+<div id="menu" class="hidden">
+  <h1>细胞的一生</h1>
+  <div class="sub">A CELL'S LIFE · 选择一种细胞，体验它从诞生到谢幕的旅程</div>
+  <div class="cards" id="cards"></div>
+  <div class="foot">WASD / 方向键 移动 · 空格 互动 · 每个阶段结束都有科普知识卡<br>人体约有 200 多种细胞，这里收录了最有代表性的 7 种</div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="topleft" class="panel">
+    <div class="phase"></div>
+    <div class="title"></div>
+    <div class="obj"></div>
+    <div class="bar"><i></i></div>
+    <div id="hearts" class="hidden"></div>
+    <div id="cargo" class="hidden"></div>
+  </div>
+  <div id="topright">
+    <button class="btn ghost" id="btnRestart">重玩本阶段</button>
+    <button class="btn ghost" id="btnMenu">返回菜单</button>
+  </div>
+  <div id="tips" class="panel"></div>
+  <div id="toast" class="panel"></div>
+  <div id="qte" class="panel hidden">
+    <div class="step"></div><div class="label"></div><div class="desc"></div>
+    <div class="key">空格</div>
+  </div>
+  <div id="timing" class="panel hidden">
+    <div class="lbl">脉冲抵达轴突末端（绿区）时按 <b>空格</b> 释放神经递质</div>
+    <div class="track"><div class="zone"></div><div class="cursor"></div></div>
+    <div class="lbl" id="timingScore"></div>
+  </div>
+  <div id="caption" class="panel hidden">
+    <div class="text"></div>
+    <button class="btn ghost skip" id="btnSkip">跳过 ›</button>
+  </div>
+</div>
+
+<!-- 阶段介绍 -->
+<div id="introModal" class="modal hidden"><div class="box">
+  <div class="phase"></div><h2></h2>
+  <div class="body"></div>
+  <div class="objbox">🎯 任务：<span></span></div>
+  <div class="actions"><button class="btn ghost" id="introMenu">返回菜单</button><button class="btn" id="introStart">开始任务 →</button></div>
+</div></div>
+
+<!-- 阶段完成 -->
+<div id="doneModal" class="modal hidden"><div class="box">
+  <span class="stamp">✓ 阶段完成</span>
+  <h2></h2>
+  <div class="body">你知道吗？</div>
+  <ul></ul>
+  <div class="actions"><button class="btn" id="doneNext">下一阶段 →</button></div>
+</div></div>
+
+<!-- 一生总结 -->
+<div id="endModal" class="modal hidden"><div class="box">
+  <span class="stamp">🎉 一生完成</span>
+  <h2></h2>
+  <div class="body"></div>
+  <div class="timeline"></div>
+  <div class="actions"><button class="btn ghost" id="endReplay">再体验一次</button><button class="btn" id="endMenu">选择其他细胞</button></div>
+</div></div>
+
+<script src="data.js"></script>
+<script src="models.js"></script>
+<script src="envs.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/* ================================================================
+   基础设施
+   ================================================================ */
+const $ = s => document.querySelector(s);
+const canvas = $('#c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
+// 后处理：Bloom 辉光
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .45, .55, .85); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const clock = new THREE.Clock();
+const hemi = new THREE.HemisphereLight(0xffffff, 0x223, 1.1);
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(8, 20, 10);
+scene.add(hemi, sun);
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+$('#loading').remove();
+
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: .55, metalness: .05, ...o });
+const pmat = (color, o = {}) => new THREE.MeshPhysicalMaterial({ color, roughness: .45, metalness: .02, clearcoat: .4, clearcoatRoughness: .5, ...o });
+// 简易 3D 噪声 & 顶点扰动（让球体/柱体有生物感的起伏）
+const noise3 = (x, y, z) => (Math.sin(x * 1.7 + y * 2.3 + 1.1) * Math.sin(y * 1.9 - z * 1.3 + 2.2) * Math.sin(z * 2.1 + x * 1.1 + 3.3) + Math.sin(x * 3.9 + 2) * Math.sin(y * 4.1 + 1) * Math.sin(z * 3.7) * .5) / 1.5;
+function bumpy(geo, amp, freq, seed = 0) {
+  const p = geo.attributes.position; const n = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { n.set(p.getX(i), p.getY(i), p.getZ(i)); const l = n.length() || 1; const d = noise3(n.x * freq + seed, n.y * freq + seed, n.z * freq + seed); n.multiplyScalar((l + amp * d) / l); p.setXYZ(i, n.x, n.y, n.z); }
+  geo.computeVertexNormals(); return geo;
+}
+
+// 简易音效
+let actx;
+function beep(f = 660, dur = .08, type = 'sine', vol = .12) {
+  try { actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + dur);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur); } catch (e) {}
+}
+
+// 输入
+const keys = {};
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') { e.preventDefault(); onSpace(); } });
+addEventListener('keyup', e => { keys[e.code] = false; });
+// 按钮点击后失焦，避免空格键重复触发按钮
+addEventListener('click', e => { if (e.target.closest('button')) e.target.closest('button').blur(); });
+
+/* ================================================================
+   游戏状态
+   ================================================================ */
+const G = {
+  cell: null, stageIdx: 0, stage: null,
+  env: null, player: null, items: [], zones: [], mission: null,
+  playing: false, health: 3, invuln: 0, activeAnim: null, dyn: [], t: 0
+};
+const safeLS = { get() { try { return JSON.parse(localStorage.getItem('cellLifeDone') || '{}'); } catch (e) { return {}; } }, set(v) { try { localStorage.setItem('cellLifeDone', JSON.stringify(v)); } catch (e) {} } };
+const store = safeLS.get();
+
+/* ================================================================
+   菜单
+   ================================================================ */
+function buildMenu() {
+  const wrap = $('#cards'); wrap.innerHTML = '';
+  for (const c of CELL_DATA) {
+    const el = document.createElement('div'); el.className = 'card'; el.style.setProperty('--cc', c.color);
+    el.innerHTML = `${store[c.id] ? '<span class="done">✓ 已体验</span>' : ''}<div class="icon">${c.icon}</div><h2>${c.name}</h2><div class="en">${c.en}</div>
+      <span class="tag">${c.tagline}</span><p>${c.desc}</p><div class="meta"><span>⏳ ${c.lifespan}</span><span>🔢 ${c.count}</span></div>`;
+    el.onclick = () => startCell(c);
+    wrap.appendChild(el);
+  }
+}
+function showMenu() { G.playing = false; clearWorld(); $('#hud').classList.add('hidden'); hideModals(); $('#menu').classList.remove('hidden'); buildMenu(); }
+function hideModals() { ['#introModal', '#doneModal', '#endModal'].forEach(s => $(s).classList.add('hidden')); }
+$('#btnMenu').onclick = showMenu; $('#introMenu').onclick = showMenu; $('#endMenu').onclick = showMenu;
+$('#btnRestart').onclick = () => loadStage(G.stageIdx);
+$('#endReplay').onclick = () => startCell(G.cell);
+
+function startCell(c) { G.cell = c; $('#menu').classList.add('hidden'); loadStage(0); }
+
+/* ================================================================
+   阶段加载
+   ================================================================ */
+function clearWorld() {
+  for (const o of [...scene.children]) if (o !== hemi && o !== sun) scene.remove(o);
+  G.items = []; G.zones = []; G.dyn = []; G.env = null; G.player = null; G.activeAnim = null; G.trail = null;
+}
+function loadStage(i) {
+  G.stageIdx = i; G.stage = G.cell.stages[i]; G.playing = false; G.health = 3; G.invuln = 0;
+  clearWorld(); hideModals();
+  G.env = ENV[G.stage.env](); scene.add(G.env.group);
+  G.player = buildPlayer(G.cell.id, i); scene.add(G.player.group);
+  G.player.group.position.copy(G.env.start || new THREE.Vector3());
+  setupMission();
+  camera.position.copy(G.player.group.position).add(camOffset());
+  // HUD
+  $('#hud').classList.remove('hidden');
+  $('#topleft .phase').textContent = `${G.cell.icon} ${G.cell.name} · ${G.stage.phase}`;
+  $('#topleft .title').textContent = G.stage.title;
+  $('#topleft .obj').textContent = G.stage.objective;
+  $('#tips').innerHTML = (G.stage.tips.length ? G.stage.tips.map(t => '· ' + t).join('<br>') : '') + `<br><b>WASD</b> 移动 · <b>空格</b> 互动`;
+  updateHUD();
+  // intro
+  $('#introModal .phase').textContent = G.stage.phase;
+  $('#introModal h2').textContent = G.stage.title;
+  $('#introModal .body').innerHTML = G.stage.intro;
+  $('#introModal .objbox span').textContent = G.stage.objective;
+  $('#introModal').classList.remove('hidden');
+  $('#introStart').onclick = () => { $('#introModal').classList.add('hidden'); G.playing = true; if (G.mission.type === 'cinematic') startCinematic(); };
+}
+function updateHUD() {
+  const m = G.mission; let p = 0;
+  if (m.type === 'collect' || m.type === 'deliver' || m.type === 'timing') p = m.got / m.count;
+  else if (m.type === 'qte') p = m.step / m.steps.length;
+  else if (m.type === 'cinematic') p = clamp(m.t / m.duration, 0, 1);
+  $('#topleft .bar i').style.width = (p * 100).toFixed(1) + '%';
+  const h = $('#hearts'); if (m.hazards) { h.classList.remove('hidden'); h.textContent = '❤'.repeat(G.health) + '🖤'.repeat(3 - G.health) + '  健康'; } else h.classList.add('hidden');
+  const c = $('#cargo'); if (m.type === 'deliver') { c.classList.remove('hidden'); c.textContent = `携带${m.cargo}：${m.carry}/${m.capacity}   已送达 ${m.got}/${m.count}`; } else c.classList.add('hidden');
+  if (m.type === 'collect') $('#topleft .obj').textContent = `${G.stage.objective}   （${m.got}/${m.count}）`;
+}
+function toast(txt, color = '#6ee7ff') { const t = $('#toast'); t.textContent = txt; t.style.color = color; t.style.opacity = 1; clearTimeout(t._h); t._h = setTimeout(() => t.style.opacity = 0, 1300); }
+
+function completeStage() {
+  if (!G.playing) return; G.playing = false; beep(880, .25); setTimeout(() => beep(1320, .3), 120);
+  ['#qte', '#timing', '#caption'].forEach(s => $(s).classList.add('hidden'));
+  $('#doneModal h2').textContent = G.stage.title;
+  $('#doneModal ul').innerHTML = G.stage.facts.map(f => `<li>${f}</li>`).join('');
+  const last = G.stageIdx === G.cell.stages.length - 1;
+  $('#doneNext').textContent = last ? '查看一生总结 →' : '下一阶段 →';
+  $('#doneNext').onclick = () => last ? showEnd() : loadStage(G.stageIdx + 1);
+  $('#doneModal').classList.remove('hidden');
+}
+function showEnd() {
+  hideModals(); store[G.cell.id] = true; safeLS.set(store);
+  $('#endModal h2').textContent = `${G.cell.icon} ${G.cell.name}的一生`;
+  $('#endModal .body').innerHTML = `寿命：<b>${G.cell.lifespan}</b> · 数量：<b>${G.cell.count}</b><br>${G.cell.desc}`;
+  $('#endModal .timeline').innerHTML = G.cell.stages.map(s => `<div class="row"><span class="dot"></span><div><b>${s.title}</b><br><small>${s.phase}</small></div></div>`).join('');
+  $('#endModal').classList.remove('hidden');
+}
+function failStage(msg) { G.playing = false; toast(msg, '#ff7b7b'); beep(160, .4, 'sawtooth'); setTimeout(() => loadStage(G.stageIdx), 1600); }
+
+/* ================================================================
+   任务
+   ================================================================ */
+function setupMission() {
+  const m = G.mission = { ...G.stage.mission, got: 0, step: 0, t: 0 };
+  const env = G.env;
+  ['#qte', '#timing', '#caption'].forEach(s => $(s).classList.add('hidden'));
+  if (m.type === 'collect') {
+    const pts = env.spread(m.count, m.ordered);
+    pts.forEach((p, i) => spawnItem(m.item, p, { index: i }));
+    if (m.hazards) env.spread(m.hazards).forEach(p => spawnItem(m.hazardItem, p, { hazard: true }));
+    if (m.trail) startTrail();
+  } else if (m.type === 'deliver') {
+    m.carry = m.capacity;
+    const src = env.sourcePos; G.zones.push(makeZone(src, m.sourceLabel));
+    env.spread(m.count).forEach(p => spawnItem(m.target, p, { target: true }));
+  } else if (m.type === 'qte') {
+    showQTE();
+  } else if (m.type === 'timing') {
+    $('#timing').classList.remove('hidden'); m.cursor = 0; m.dir = 1; m.lo = 0.74; m.hi = 0.74 + m.window;
+    const z = $('#timing .zone'); z.style.left = (m.lo * 100) + '%'; z.style.width = (m.window * 100) + '%';
+    $('#timingScore').textContent = `命中 0/${m.count}`;
+    setupPulse();
+  }
+}
+function makeZone(pos, label) {
+  const g = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, .15, 40), mat(0x4fb8ff, { emissive: 0x2266aa, emissiveIntensity: .8, transparent: true, opacity: .55 }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(4.6, .12, 8, 48), mat(0x9fe0ff, { emissive: 0x9fe0ff, emissiveIntensity: 1 })); ring.rotation.x = Math.PI / 2; ring.position.y = .1;
+  g.add(disc, ring); g.position.copy(pos); scene.add(g);
+  G.dyn.push(t => { ring.scale.setScalar(1 + Math.sin(t * 3) * .04); });
+  return { group: g, r: 4.5 };
+}
+
+/* ---- 物品 ---- */
+function spawnItem(type, pos, opt = {}) {
+  const mesh = ITEM_BUILDERS[type](); mesh.position.copy(pos); mesh.position.y = Math.max(mesh.position.y, type === 'waypoint' ? 1.9 : 1.1); scene.add(mesh);
+  const it = { type, mesh, r: type === 'waypoint' ? 1.5 : type === 'tissue' || type === 'neuronTarget' ? 1.6 : .8, taken: false, ...opt,
+    vel: new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)).normalize(), phase: rand(0, 6), baseY: mesh.position.y };
+  if (type === 'waypoint') mesh.rotation.y = rand(0, 3);
+  G.items.push(it); return it;
+}
+function setItemActive(it, on) {
+  it.mesh.traverse(o => { if (o.isMesh) { o.material.transparent = true; o.material.opacity = on ? 1 : .4; o.material.emissiveIntensity = on ? 1.2 : .15; } });
+}
+function collect(it) {
+  it.taken = true; scene.remove(it.mesh); const m = G.mission; m.got++; beep(520 + m.got * 60, .1, 'triangle');
+  burst(it.mesh.position, it.type === 'bacteria' ? 0x7ddc4c : 0x8fe9ff);
+  if (G.cell.id === 'rbc' && it.type === 'o2') G.player.setOxy(m.got / m.count);
+  if (G.player.onCollect) G.player.onCollect(m.got / m.count);
+  if (it.type === 'neuronTarget') { it.mesh.userData.linked = true; }
+  updateHUD();
+  if (m.got >= m.count) setTimeout(completeStage, 500);
+}
+function burst(pos, color) {
+  const n = 14, g = new THREE.Group();
+  for (let i = 0; i < n; i++) { const p = new THREE.Mesh(new THREE.SphereGeometry(.09, 6, 6), mat(color, { emissive: color, emissiveIntensity: 1 })); p.position.copy(pos);
+    p.userData.v = new THREE.Vector3(rand(-1, 1), rand(0, 1.5), rand(-1, 1)).multiplyScalar(rand(3, 7)); g.add(p); }
+  scene.add(g); let life = 0;
+  G.dyn.push((t, dt) => { life += dt; g.children.forEach(p => { p.position.addScaledVector(p.userData.v, dt); p.userData.v.y -= 12 * dt; p.scale.setScalar(Math.max(0, 1 - life * 1.6)); }); if (life > .7) { scene.remove(g); return false; } });
+}
+
+/* ---- 轴突轨迹 ---- */
+function startTrail() {
+  const pts = []; const g = new THREE.Group(); scene.add(g); G.trail = { pts, g, last: G.player.group.position.clone() };
+}
+function updateTrail() {
+  const tr = G.trail; if (!tr) return; const p = G.player.group.position;
+  if (p.distanceTo(tr.last) > .9) {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(.28, 8, 8), mat(0x6fd6ff, { emissive: 0x2f9fff, emissiveIntensity: .8 })); b.position.copy(p); b.position.y = .6; tr.g.add(b);
+    tr.last.copy(p); tr.pts.push(b.position.clone());
+  }
+}
+
+/* ---- QTE ---- */
+function showQTE() {
+  const m = G.mission, s = m.steps[m.step]; $('#qte').classList.remove('hidden');
+  $('#qte .step').textContent = `步骤 ${m.step + 1} / ${m.steps.length}`;
+  $('#qte .label').textContent = s.label; $('#qte .desc').textContent = s.desc; $('#qte .key').classList.remove('busy');
+}
+async function onSpace() {
+  if (!G.playing) return; const m = G.mission;
+  if (m.type === 'qte') {
+    if (G.activeAnim) return; const s = m.steps[m.step]; $('#qte .key').classList.add('busy'); beep(720, .12);
+    await runAnim(s.anim); m.step++; updateHUD();
+    if (m.step >= m.steps.length) completeStage(); else showQTE();
+  } else if (m.type === 'timing') {
+    if (m.cursor >= m.lo && m.cursor <= m.hi) { m.got++; beep(990, .15, 'triangle'); toast(m.hitText || '✓ 释放神经递质！', '#6cf5a1'); burst(m.pulseEnd, 0xffe36e); if (G.player.contract) G.player.contract(); m.cursor = 0; }
+    else { beep(200, .2, 'sawtooth'); toast('时机不对，再来', '#ff9b7b'); m.cursor = 0; }
+    $('#timingScore').textContent = `命中 ${m.got}/${m.count}`; updateHUD();
+    if (m.got >= m.count) completeStage();
+  }
+}
+/* ---- 节奏：电脉冲 ---- */
+function setupPulse() {
+  const m = G.mission;
+  $('#timing .lbl').innerHTML = m.prompt || '脉冲抵达轴突末端（绿区）时按 <b>空格</b> 释放神经递质';
+  let curve, end;
+  if (m.visual === 'motor') {
+    // 运动神经元的轴突从远处伸向肌纤维（玩家）
+    end = new THREE.Vector3(0, 1.4, -1.2); const start = new THREE.Vector3(-14, 6, -22);
+    curve = new THREE.CatmullRomCurve3([start, new THREE.Vector3(-8, 4, -14), new THREE.Vector3(-3, 2.5, -7), end]);
+    const soma = ITEM_BUILDERS.neuronTarget(); soma.position.copy(start).add(new THREE.Vector3(-1, .5, -1)); soma.scale.setScalar(1.5); scene.add(soma);
+    // 神经-肌肉接头（终板）
+    for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(new THREE.SphereGeometry(.28, 10, 10), mat(0x9fd8ff, { emissive: 0x2f9fff, emissiveIntensity: .8 })); b.position.copy(end).add(new THREE.Vector3(rand(-.8, .8), rand(-.2, .3), rand(-.6, .6))); scene.add(b); }
+    G.player.group.position.set(0, 0, 0);
+  } else {
+    // 一条固定的轴突通向前方的突触
+    const start = new THREE.Vector3(0, .8, 4); end = new THREE.Vector3(0, .8, -22);
+    curve = new THREE.CatmullRomCurve3([start, new THREE.Vector3(3, .8, -5), new THREE.Vector3(-3, .8, -14), end]);
+    const target = ITEM_BUILDERS.neuronTarget(); target.position.copy(end).add(new THREE.Vector3(0, .8, -2.5)); target.scale.setScalar(1.6); target.children[0].material.emissiveIntensity = 1.4; scene.add(target);
+    G.dyn.push(t => { target.children[0].material.emissiveIntensity = 1 + Math.sin(t * 4) * .5; });
+    G.player.group.position.set(0, 0, 5);
+  }
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, .22, 8), pmat(0x6fd6ff, { emissive: 0x2f9fff, emissiveIntensity: .5 })); scene.add(tube);
+  for (let i = 1; i < 6; i++) { const my = new THREE.Mesh(bumpy(new THREE.CylinderGeometry(.5, .5, 2.4, 14, 6), .03, 3), pmat(0xfff1c9, { roughness: .3, clearcoat: .6 })); const p = curve.getPointAt(i / 6.5); my.position.copy(p); my.lookAt(curve.getPointAt(i / 6.5 + .01)); my.rotateX(Math.PI / 2); scene.add(my); }
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(.45, 14, 14), mat(0xffe36e, { emissive: 0xffe36e, emissiveIntensity: 2 })); scene.add(pulse);
+  m.curve = curve; m.pulse = pulse; m.pulseEnd = end.clone(); G.player.locked = true;
+}
+
+/* ---- 过场 ---- */
+function startCinematic() {
+  const m = G.mission; m.t = 0; m.ci = -1; $('#caption').classList.remove('hidden'); G.player.locked = true;
+  $('#btnSkip').onclick = () => completeStage(); runAnim(m.anim, m.duration);
+}
+function updateCinematic(dt) {
+  const m = G.mission; m.t += dt; updateHUD();
+  const caps = m.captions; let idx = -1; for (let i = 0; i < caps.length; i++) if (m.t >= caps[i][0]) idx = i;
+  if (idx !== m.ci) { m.ci = idx; $('#caption .text').textContent = caps[idx][1]; }
+  if (m.t >= m.duration) completeStage();
+}
+
+/* ================================================================
+   动画（QTE 与过场）
+   ================================================================ */
+function runAnim(name, dur) {
+  return new Promise(res => { const a = ANIMS[name](); G.activeAnim = { t: 0, dur: dur || a.dur, fn: a.fn, done: () => { a.end?.(); res(); } }; });
+}
+/* ================================================================
+   主循环
+   ================================================================ */
+const tmpV = new THREE.Vector3();
+const CAM = { disc: new THREE.Vector3(0, 11, 13), corridor: new THREE.Vector3(0, 7.5, 13), qte: new THREE.Vector3(0, 4.5, 6.5), cinematic: new THREE.Vector3(0, 6.5, 8.5), timing: new THREE.Vector3(0, 20, 12) };
+function camOffset() { const m = G.mission; if (m.type === 'qte') return CAM.qte; if (m.type === 'cinematic') return CAM.cinematic; if (m.type === 'timing') return CAM.timing; return G.env.type === 'corridor' ? CAM.corridor : CAM.disc; }
+function tick() { requestAnimationFrame(tick); frame(); }
+function frame(forceDt) {
+  const dt = forceDt || Math.min(clock.getDelta(), .05); G.t += dt; const t = G.t;
+  if (!G.player) { composer.render(); return; }
+  const P = G.player, g = P.group, m = G.mission, env = G.env;
+  P.update(t, dt); env.update(t, dt);
+  G.dyn = G.dyn.filter(f => f(t, dt) !== false);
+  // 动画
+  if (G.activeAnim) { const a = G.activeAnim; a.t += dt; a.fn(clamp(a.t / a.dur, 0, 1)); if (a.t >= a.dur) { G.activeAnim = null; a.done(); } }
+
+  if (G.playing) {
+    // 移动
+    if (!P.locked && !(m.type === 'qte')) {
+      tmpV.set((keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0), 0, (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0));
+      if (tmpV.lengthSq() > 0) { tmpV.normalize().multiplyScalar(P.speed * dt); g.position.add(tmpV); P.inner.rotation.y = lerp(P.inner.rotation.y, Math.atan2(tmpV.x, tmpV.z), .15); }
+      if (env.flow) g.position.z -= env.flow * dt;
+      if (env.type === 'disc') { const l = Math.hypot(g.position.x, g.position.z); if (l > env.R) { g.position.x *= env.R / l; g.position.z *= env.R / l; } }
+      else { g.position.x = clamp(g.position.x, -env.halfW + 1.2, env.halfW - 1.2); g.position.z = clamp(g.position.z, -env.len + 12, 14); }
+      P.inner.position.y = 1.2 + Math.sin(t * 3) * .12;
+    }
+    G.invuln = Math.max(0, G.invuln - dt);
+    P.inner.visible = G.invuln <= 0 || Math.floor(t * 12) % 2 === 0;
+
+    // 物品逻辑
+    if (m.type === 'collect' || m.type === 'deliver') {
+      let nextIdx = m.ordered ? G.items.filter(i => !i.hazard).findIndex(i => !i.taken) : -1;
+      for (const it of G.items) {
+        if (it.taken) continue; const mm = it.mesh;
+        mm.position.y = it.baseY + Math.sin(t * 2 + it.phase) * .2; mm.rotation.y += dt * .8;
+        if (m.ordered) setItemActive(it, it.index === nextIdx);
+        // 逃跑 / 游荡
+        if (m.flee && !it.hazard) {
+          const d = tmpV.subVectors(mm.position, g.position); d.y = 0; const dist = d.length();
+          if (dist < 9) it.vel.lerp(d.normalize(), .12); else if (Math.random() < .02) it.vel.set(rand(-1, 1), 0, rand(-1, 1)).normalize();
+          mm.position.addScaledVector(it.vel, m.speed * dt); mm.lookAt(mm.position.clone().add(it.vel));
+          const l = Math.hypot(mm.position.x, mm.position.z); if (l > env.R - 1) { mm.position.x *= (env.R - 1) / l; mm.position.z *= (env.R - 1) / l; it.vel.multiplyScalar(-1); }
+        } else if (it.hazard) { mm.position.addScaledVector(it.vel, 1.5 * dt); mm.rotation.x += dt; const l = Math.hypot(mm.position.x, mm.position.z); if (l > (env.R || 99) - 1) { mm.position.multiplyScalar(((env.R || 99) - 1.2) / l); it.vel.multiplyScalar(-1); } }
+        // 碰撞
+        const dist = Math.hypot(mm.position.x - g.position.x, mm.position.z - g.position.z);
+        if (dist < it.r + P.r) {
+          if (it.hazard) { if (G.invuln <= 0) { G.health--; G.invuln = 1.6; beep(180, .25, 'square'); toast(`⚠ 碰到${m.hazardLabel}！`, '#ff7b7b'); const push = tmpV.subVectors(g.position, mm.position).setY(0).normalize().multiplyScalar(3); g.position.add(push); it.vel.multiplyScalar(-1); updateHUD(); if (G.health <= 0) failStage('损伤过重，本阶段重新开始…'); } }
+          else if (it.target) { if (m.carry > 0 && !it.done) { it.done = true; it.taken = true; m.carry--; m.got++; beep(700, .12, 'triangle'); burst(mm.position, 0xff6a6a); mm.userData.body.material.color.setHex(0xff6a7a); mm.userData.body.material.emissive.setHex(0xff2030); mm.userData.body.material.emissiveIntensity = .5; toast('✓ 氧气送达', '#6cf5a1'); updateHUD(); if (m.got >= m.count) setTimeout(completeStage, 500); } else if (m.carry <= 0 && !it.done) { if (!it._warn || t - it._warn > 2) { it._warn = t; toast('氧气用完了，回起点的肺区补给', '#ffd36e'); } } }
+          else if (!m.ordered || it.index === nextIdx) collect(it);
+        }
+      }
+      if (m.type === 'deliver') for (const z of G.zones) { const d = Math.hypot(z.group.position.x - g.position.x, z.group.position.z - g.position.z); if (d < z.r && m.carry < m.capacity) { m.carry = m.capacity; beep(600, .15); toast('装载氧气完毕！', '#8fe9ff'); if (P.setOxy) P.setOxy(1); updateHUD(); } }
+      if (m.type === 'deliver' && P.setOxy) P.setOxy(m.carry / m.capacity);
+      if (m.trail) updateTrail();
+    } else if (m.type === 'timing') {
+      m.cursor += dt * .55 * m.speed; if (m.cursor > 1) m.cursor = 0;
+      $('#timing .cursor').style.left = `calc(${(m.cursor * 100).toFixed(2)}% - 3px)`;
+      const p = m.curve.getPointAt(clamp(m.cursor / m.hi, 0, 1)); m.pulse.position.copy(p); m.pulse.scale.setScalar(1 + Math.sin(t * 20) * .15);
+      m.pulse.material.emissiveIntensity = m.cursor >= m.lo && m.cursor <= m.hi ? 3 : 1.5;
+    } else if (m.type === 'cinematic') updateCinematic(dt);
+  }
+  // 相机
+  const camTarget = tmpV.copy(g.position).add(camOffset());
+  camera.position.lerp(camTarget, .06); camera.lookAt(g.position.x, g.position.y + 1, g.position.z - (m.type === 'timing' ? 11 : 0));
+  composer.render();
+}
+const CTX = { THREE, G, scene, camera, rand, clamp, lerp, ease, mat, pmat, noise3, bumpy, burst };
+const { buildPlayer, ITEM_BUILDERS, ANIMS } = CellModels(CTX);
+const { ENV } = CellEnvs({ ...CTX, ITEM_BUILDERS });
+showMenu(); tick();
+window.__cellLife = { G, startCell, loadStage, completeStage, runAnim, onSpace, keys, CELL_DATA, frame };
+</script>
+</body>
+</html>
