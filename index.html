@@ -162,9 +162,10 @@
   <div class="actions"><button class="btn ghost" id="endReplay">再体验一次</button><button class="btn" id="endMenu">选择其他细胞</button></div>
 </div></div>
 
-<script src="data.js"></script>
-<script src="models.js"></script>
-<script src="envs.js"></script>
+<script src="data.js?v=2"></script>
+<script src="gfx.js?v=2"></script>
+<script src="models.js?v=2"></script>
+<script src="envs.js?v=2"></script>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
 </script>
@@ -174,6 +175,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* ================================================================
    基础设施
@@ -192,9 +195,14 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .45, .55, .85); composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const clock = new THREE.Clock();
+// 三点布光：天光/地光 + 主光 + 逆光（勾出细胞膜轮廓）
 const hemi = new THREE.HemisphereLight(0xffffff, 0x223, 1.1);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(8, 20, 10);
-scene.add(hemi, sun);
+const rim = new THREE.DirectionalLight(0x88ccff, 1.2); rim.position.set(-10, 8, -14);
+scene.add(hemi, sun, rim);
+// 渲染底座：程序化纹理、生物材质、几何工具、场景氛围
+const X = CellGfx({ THREE, renderer, scene, lights: { hemi, sun, rim }, bloom, mergeGeometries });
+const finish = new ShaderPass(X.FinishShader); composer.addPass(finish); // 暗角 · 色差 · 颗粒
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 $('#loading').remove();
@@ -203,15 +211,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const ease = t => t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: .55, metalness: .05, ...o });
-const pmat = (color, o = {}) => new THREE.MeshPhysicalMaterial({ color, roughness: .45, metalness: .02, clearcoat: .4, clearcoatRoughness: .5, ...o });
-// 简易 3D 噪声 & 顶点扰动（让球体/柱体有生物感的起伏）
-const noise3 = (x, y, z) => (Math.sin(x * 1.7 + y * 2.3 + 1.1) * Math.sin(y * 1.9 - z * 1.3 + 2.2) * Math.sin(z * 2.1 + x * 1.1 + 3.3) + Math.sin(x * 3.9 + 2) * Math.sin(y * 4.1 + 1) * Math.sin(z * 3.7) * .5) / 1.5;
-function bumpy(geo, amp, freq, seed = 0) {
-  const p = geo.attributes.position; const n = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) { n.set(p.getX(i), p.getY(i), p.getZ(i)); const l = n.length() || 1; const d = noise3(n.x * freq + seed, n.y * freq + seed, n.z * freq + seed); n.multiplyScalar((l + amp * d) / l); p.setXYZ(i, n.x, n.y, n.z); }
-  geo.computeVertexNormals(); return geo;
-}
+const { mat, pmat, bumpy } = X; const noise3 = X.simplex;
 
 // 简易音效
 let actx;
@@ -226,6 +226,8 @@ function beep(f = 660, dur = .08, type = 'sine', vol = .12) {
 const keys = {};
 addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') { e.preventDefault(); onSpace(); } });
 addEventListener('keyup', e => { keys[e.code] = false; });
+// 滚轮缩放镜头：凑近观察细胞结构
+addEventListener('wheel', e => { if (!G.player || e.target.closest('.modal, #menu')) return; G.zoom = clamp((G.zoom ?? 1) * (e.deltaY > 0 ? 1.1 : .9), .3, 1.6); }, { passive: true });
 // 按钮点击后失焦，避免空格键重复触发按钮
 addEventListener('click', e => { if (e.target.closest('button')) e.target.closest('button').blur(); });
 
@@ -265,7 +267,7 @@ function startCell(c) { G.cell = c; $('#menu').classList.add('hidden'); loadStag
    阶段加载
    ================================================================ */
 function clearWorld() {
-  for (const o of [...scene.children]) if (o !== hemi && o !== sun) scene.remove(o);
+  for (const o of [...scene.children]) if (o !== hemi && o !== sun && o !== rim) { scene.remove(o); X.dispose(o); }
   G.items = []; G.zones = []; G.dyn = []; G.env = null; G.player = null; G.activeAnim = null; G.trail = null;
 }
 function loadStage(i) {
@@ -273,6 +275,7 @@ function loadStage(i) {
   clearWorld(); hideModals();
   G.env = ENV[G.stage.env](); scene.add(G.env.group);
   G.player = buildPlayer(G.cell.id, i); scene.add(G.player.group);
+  G.player.group.add(X.contactShadow(G.player.r, G.env.type === 'corridor' ? .35 : .5));
   G.player.group.position.copy(G.env.start || new THREE.Vector3());
   setupMission();
   camera.position.copy(G.player.group.position).add(camOffset());
@@ -281,7 +284,7 @@ function loadStage(i) {
   $('#topleft .phase').textContent = `${G.cell.icon} ${G.cell.name} · ${G.stage.phase}`;
   $('#topleft .title').textContent = G.stage.title;
   $('#topleft .obj').textContent = G.stage.objective;
-  $('#tips').innerHTML = (G.stage.tips.length ? G.stage.tips.map(t => '· ' + t).join('<br>') : '') + `<br><b>WASD</b> 移动 · <b>空格</b> 互动`;
+  $('#tips').innerHTML = (G.stage.tips.length ? G.stage.tips.map(t => '· ' + t).join('<br>') : '') + `<br><b>WASD</b> 移动 · <b>空格</b> 互动 · <b>滚轮</b> 缩放`;
   updateHUD();
   // intro
   $('#introModal .phase').textContent = G.stage.phase;
@@ -349,10 +352,12 @@ function setupMission() {
 }
 function makeZone(pos, label) {
   const g = new THREE.Group();
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, .15, 40), mat(0x4fb8ff, { emissive: 0x2266aa, emissiveIntensity: .8, transparent: true, opacity: .55 }));
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(4.6, .12, 8, 48), mat(0x9fe0ff, { emissive: 0x9fe0ff, emissiveIntensity: 1 })); ring.rotation.x = Math.PI / 2; ring.position.y = .1;
-  g.add(disc, ring); g.position.copy(pos); scene.add(g);
-  G.dyn.push(t => { ring.scale.setScalar(1 + Math.sin(t * 3) * .04); });
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, .15, 64), mat(0x4fb8ff, { emissive: 0x2266aa, emissiveIntensity: .8, transparent: true, opacity: .4, depthWrite: false }));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(4.6, .1, 10, 96), X.glowMat(0x9fe0ff, 1.4)); ring.rotation.x = Math.PI / 2; ring.position.y = .1;
+  // 上升的氧气泡
+  const bub = X.particles({ n: 60, R: 3.8, y0: .2, y1: 4, color: 0x8fe9ff, size: .45, opacity: .8, drift: .2 });
+  g.add(disc, ring, bub); g.position.copy(pos); scene.add(g);
+  G.dyn.push((t, dt) => { ring.scale.setScalar(1 + Math.sin(t * 3) * .04); const a = bub.geometry.attributes.position.array; for (let i = 1; i < a.length; i += 3) { a[i] += dt * 1.5; if (a[i] > 4.5) a[i] = .2; } bub.geometry.attributes.position.needsUpdate = true; });
   return { group: g, r: 4.5 };
 }
 
@@ -386,13 +391,17 @@ function burst(pos, color) {
 
 /* ---- 轴突轨迹 ---- */
 function startTrail() {
-  const pts = []; const g = new THREE.Group(); scene.add(g); G.trail = { pts, g, last: G.player.group.position.clone() };
+  const pts = []; const g = new THREE.Group(); scene.add(g);
+  const m = X.rimify(X.pmat(0x6fb0ff, { emissive: 0x2f7fff, emissiveIntensity: .7, roughness: .3 }), { rim: 0xb0e0ff, rimStr: .6, rimAlpha: 0 });
+  G.trail = { pts, g, mat: m, last: G.player.group.position.clone() };
 }
 function updateTrail() {
   const tr = G.trail; if (!tr) return; const p = G.player.group.position;
   if (p.distanceTo(tr.last) > .9) {
-    const b = new THREE.Mesh(new THREE.SphereGeometry(.28, 8, 8), mat(0x6fd6ff, { emissive: 0x2f9fff, emissiveIntensity: .8 })); b.position.copy(p); b.position.y = .6; tr.g.add(b);
-    tr.last.copy(p); tr.pts.push(b.position.clone());
+    tr.pts.push(new THREE.Vector3(p.x, .7, p.z)); tr.last.copy(p);
+    // 用变径管画出一路延伸的轴突（每新增一段重建一次）
+    if (tr.pts.length >= 2) { if (tr.mesh) { tr.g.remove(tr.mesh); tr.mesh.geometry.dispose(); }
+      tr.mesh = new THREE.Mesh(X.taperTube(tr.pts.length > 2 ? tr.pts : [tr.pts[0], tr.pts[0].clone().lerp(tr.pts[1], .5), tr.pts[1]], () => .2, Math.max(8, tr.pts.length * 4), 8), tr.mat); tr.g.add(tr.mesh); }
   }
 }
 
@@ -436,9 +445,11 @@ function setupPulse() {
     G.dyn.push(t => { target.children[0].material.emissiveIntensity = 1 + Math.sin(t * 4) * .5; });
     G.player.group.position.set(0, 0, 5);
   }
-  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 80, .22, 8), pmat(0x6fd6ff, { emissive: 0x2f9fff, emissiveIntensity: .5 })); scene.add(tube);
-  for (let i = 1; i < 6; i++) { const my = new THREE.Mesh(bumpy(new THREE.CylinderGeometry(.5, .5, 2.4, 14, 6), .03, 3), pmat(0xfff1c9, { roughness: .3, clearcoat: .6 })); const p = curve.getPointAt(i / 6.5); my.position.copy(p); my.lookAt(curve.getPointAt(i / 6.5 + .01)); my.rotateX(Math.PI / 2); scene.add(my); }
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(.45, 14, 14), mat(0xffe36e, { emissive: 0xffe36e, emissiveIntensity: 2 })); scene.add(pulse);
+  const tube = new THREE.Mesh(X.taperTube(curve, () => .22, 120, 10), X.rimify(pmat(0x6fd6ff, { emissive: 0x2f9fff, emissiveIntensity: .5 }), { rim: 0xb0e8ff, rimAlpha: 0 })); scene.add(tube);
+  // 髓鞘（施万细胞包裹）与郎飞结
+  const myM = X.rimify(pmat(0xfff1c9, { roughness: .25, clearcoat: .9, emissive: 0x403010, emissiveIntensity: .25, normalMap: X.rep(X.normalTex('fibrous'), 1, 3), normalScale: new THREE.Vector2(.4, .4) }), { rim: 0xffffff, rimStr: .3, rimAlpha: 0 });
+  for (let i = 1; i < 6; i++) { const t = i / 6.5, my = new THREE.Mesh(X.smoothNormals(new THREE.CapsuleGeometry(.5, 1.9, 8, 24)), myM); my.position.copy(curve.getPointAt(t)); my.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangentAt(t)); scene.add(my); }
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(.45, 20, 16), mat(0xffe36e, { emissive: 0xffe36e, emissiveIntensity: 2 })); pulse.add(X.glowSprite(0xffe36e, 3, .7)); scene.add(pulse);
   m.curve = curve; m.pulse = pulse; m.pulseEnd = end.clone(); G.player.locked = true;
 }
 
@@ -468,7 +479,7 @@ const CAM = { disc: new THREE.Vector3(0, 11, 13), corridor: new THREE.Vector3(0,
 function camOffset() { const m = G.mission; if (m.type === 'qte') return CAM.qte; if (m.type === 'cinematic') return CAM.cinematic; if (m.type === 'timing') return CAM.timing; return G.env.type === 'corridor' ? CAM.corridor : CAM.disc; }
 function tick() { requestAnimationFrame(tick); frame(); }
 function frame(forceDt) {
-  const dt = forceDt || Math.min(clock.getDelta(), .05); G.t += dt; const t = G.t;
+  const dt = forceDt || Math.min(clock.getDelta(), .05); G.t += dt; const t = G.t; X.U.time.value = t;
   if (!G.player) { composer.render(); return; }
   const P = G.player, g = P.group, m = G.mission, env = G.env;
   P.update(t, dt); env.update(t, dt);
@@ -522,15 +533,17 @@ function frame(forceDt) {
     } else if (m.type === 'cinematic') updateCinematic(dt);
   }
   // 相机
-  const camTarget = tmpV.copy(g.position).add(camOffset());
+  const camTarget = tmpV.copy(g.position).addScaledVector(camOffset(), G.zoom ?? 1);
   camera.position.lerp(camTarget, .06); camera.lookAt(g.position.x, g.position.y + 1, g.position.z - (m.type === 'timing' ? 11 : 0));
   composer.render();
 }
-const CTX = { THREE, G, scene, camera, rand, clamp, lerp, ease, mat, pmat, noise3, bumpy, burst };
-const { buildPlayer, ITEM_BUILDERS, ANIMS } = CellModels(CTX);
-const { ENV } = CellEnvs({ ...CTX, ITEM_BUILDERS });
+const CTX = { THREE, G, scene, camera, rand, clamp, lerp, ease, mat, pmat, noise3, bumpy, burst, X };
+const { buildPlayer, ITEM_BUILDERS, ANIMS, lib } = CellModels(CTX);
+const { ENV } = CellEnvs({ ...CTX, ITEM_BUILDERS, M: lib });
 showMenu(); tick();
-window.__cellLife = { G, startCell, loadStage, completeStage, runAnim, onSpace, keys, CELL_DATA, frame };
+// 菜单阶段空闲时预生成纹理
+(window.requestIdleCallback || setTimeout)(() => X.warm());
+window.__cellLife = { G, startCell, loadStage, completeStage, runAnim, onSpace, keys, CELL_DATA, frame, X, camera, renderer, scene, ITEM_BUILDERS };
 </script>
 </body>
 </html>
